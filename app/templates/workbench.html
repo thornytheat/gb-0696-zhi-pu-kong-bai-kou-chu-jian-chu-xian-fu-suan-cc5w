@@ -1,1 +1,72 @@
-{% extends "base.html" %}{% block content %}<div class="kpis">{% for label,value in run.result.balance.items() %}<div class="kpi"><span>{{ {'input':'输入记录','accepted':'采信记录','quarantined':'隔离记录','blank':'空行'}[label] }}</span><strong>{{ value }}</strong></div>{% endfor %}<div class="kpi conclusion"><span>批次状态</span><strong>{{ '阻断' if run.result.blocked else '待复核' }}</strong></div></div><div class="grid"><section class="panel results"><div class="panel-head"><h2>响应证据</h2><span>{{ report.rows|length }} 条</span></div><div class="table-wrap"><table class="ledger"><thead><tr>{% if report.rows %}{% for key in report.rows[0] %}{% if key not in ['raw','level_value','dilution_value'] %}<th>{{ {"sample_id":"样品编号","kind":"类型","analyte":"检测项","area":"峰面积","internal_area":"内标峰面积","level":"标示浓度","dilution":"稀释倍数","unit":"单位","batch":"批次","line":"来源行","response":"响应比","slope":"斜率","intercept":"截距","r2":"拟合优度","max_response":"最大响应","net":"净浓度","concentration":"浓度","lod":"检出限","status":"原因码","qualifier":"限定符"}.get(key,key) }}</th>{% endif %}{% endfor %}{% endif %}</tr></thead><tbody>{% for row in report.rows %}<tr>{% for key,value in row.items() %}{% if key not in ['raw','level_value','dilution_value'] %}<td class="{{ 'num' if key in ['line','area','response','net','concentration','lod'] else '' }}" title="{{ value }}">{{ value }}</td>{% endif %}{% endfor %}</tr>{% else %}<tr><td>选择样例后运行。</td></tr>{% endfor %}</tbody></table></div></section><section class="panel assay"><div class="panel-head"><h2>样品浓度</h2><span>{{run.result.quality[:12]|length}} / {{ run.result.quality|length }} 样品</span></div><div class="plot">{% for row in run.result.quality[:12] %}<div class="bar-row"><span>{{ row.sample_id }}</span><i class="concentration-bar" data-value="{{ row.concentration }}"></i><b>{{ row.concentration }} ug/L</b><em>{{ row.status }} · LOD {{ row.lod }}</em></div>{% endfor %}</div><div class="threshold">绝对值上限 <strong id="plot-max"></strong></div></section><section class="panel input"><div class="panel-head"><h2>输入批次</h2><span>CSV</span></div><form id="run-form"><label>仪器文件<input id="file" type="file" accept=".csv"></label><textarea id="text" rows="4" aria-label="CSV内容" placeholder="粘贴仪器数据"></textarea><div class="actions"><button class="btn" type="button" id="sample">载入样例</button><button class="btn primary" type="submit">运行复算</button></div><output id="feedback" role="status">{{ run.created }}</output></form></section><section class="panel quarantine"><div class="panel-head"><h2>隔离原因</h2><span>{{ run.result.quarantine|length }} 条</span></div><div class="reason-list">{% for reason,count in run.result.reasons.items() %}<div><span class="sev severe">{{ reason }}</span><b>{{ count }}</b></div>{% endfor %}</div><div class="review"><button class="btn" data-review="退回">退回</button><button class="btn" data-review="通过">通过</button><span>版本 {{ run.revision }}</span></div></section></div><script type="application/json" id="run-state">{{ {'id':run.id,'revision':run.revision}|tojson }}</script>{% endblock %}
+{% extends "base.html" %}{% block content %}
+{% set corrections = run.amendments %}
+{% set switched = corrections|selectattr('payload.status','equalto','APPLIED')|list %}
+{% set kept = corrections|selectattr('payload.status','equalto','KEPT_ORIGINAL')|list %}
+{% set blocked_blanks = run.result.blank_blocks %}
+<div class="kpis">
+  {% for label,value in run.result.balance.items() %}<div class="kpi"><span>{{ {'input':'输入记录','accepted':'采信记录','quarantined':'隔离记录','blank':'空行'}[label] }}</span><strong>{{ value }}</strong></div>{% endfor %}
+  <div class="kpi"><span>相邻空白修正</span><strong>{{ switched|length }}</strong></div>
+  <div class="kpi conclusion"><span>批次状态</span><strong>{{ '阻断' if run.result.blocked else '待复核' }}</strong></div>
+</div>
+{% if blocked_blanks %}<div class="alert" role="alert"><strong>整批已阻断</strong>来源不明的偏高空白 {{ blocked_blanks|length }} 处，须先查明空白来源后才能放行。<span>{{ blocked_blanks|map(attribute='sample_id')|join(' / ') }}</span></div>{% endif %}
+<div class="grid">
+  <section class="panel results">
+    <div class="panel-head"><h2>响应证据</h2><span>{{ report.rows|length }} 条</span></div>
+    <div class="table-wrap"><table class="ledger"><thead><tr>
+      {% if report.rows %}{% for key in report.rows[0] %}{% if key not in ['raw','level_value','dilution_value','blank','blank_report'] %}<th>{{ {"sample_id":"样品编号","kind":"类型","analyte":"检测项","area":"峰面积","internal_area":"内标峰面积","level":"标示浓度","dilution":"稀释倍数","unit":"单位","batch":"批次","line":"来源行","response":"响应比","slope":"斜率","intercept":"截距","r2":"拟合优度","max_response":"最大响应","net":"净浓度","concentration":"浓度","lod":"检出限","status":"原因码","qualifier":"限定符","batch_blank":"批空白","adjacent_blank":"相邻空白","adjacent_blank_id":"相邻空白编号","adjacent_blank_line":"相邻空白行","adjacent_blank_class":"相邻空白归类","blank_basis":"空白依据","blank_source":"空白来源","net_batch":"批空白净浓度","net_adjacent":"相邻空白净浓度","low_concentration":"低浓度","switch_status":"切换状态","switch_reason":"切换原因","batch_concentration":"批空白浓度","batch_status":"批空白原因码","batch_qualifier":"批空白限定符","batch_conclusion":"批空白结论","adjacent_concentration":"相邻空白浓度","adjacent_status":"相邻空白原因码","adjacent_qualifier":"相邻空白限定符","adjacent_conclusion":"相邻空白结论","conclusion":"最终结论","conclusion_basis":"结论依据"}.get(key,key) }}</th>{% endif %}{% endfor %}{% endif %}
+    </tr></thead><tbody>
+    {% for row in report.rows %}<tr>{% for key,value in row.items() %}{% if key not in ['raw','level_value','dilution_value','blank','blank_report'] %}<td class="{{ 'num' if key in ['line','area','response','net','concentration','lod'] else '' }}" title="{{ value }}">{{ value }}</td>{% endif %}{% endfor %}</tr>
+    {% else %}<tr><td>选择样例后运行。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel assay">
+    <div class="panel-head"><h2>样品浓度</h2><span>{{ run.result.final|length }} 样品</span></div>
+    <div class="plot">{% for row in run.result.final[:10] %}<div class="bar-row"><span>{{ row.sample_id }}</span><i class="concentration-bar {{ 'is-switched' if row.blank_basis=='adjacent' else '' }}" data-value="{{ row.concentration }}"></i><b>{{ row.concentration }} ug/L</b><em>{{ row.conclusion }} · {{ row.blank_basis == 'adjacent' and '相邻空白' or '批空白' }} · LOD {{ row.lod }}</em></div>{% endfor %}</div>
+    <div class="threshold">绝对值上限 <strong id="plot-max"></strong></div>
+  </section>
+
+  <section class="panel basis">
+    <div class="panel-head"><h2>空白依据对照</h2><span>切 {{ switched|length }} · 保留原结论 {{ kept|length }}</span></div>
+    <div class="table-wrap"><table class="ledger"><thead><tr>
+      <th>样品编号</th><th>批空白</th><th>相邻空白</th><th>依据</th><th>切换</th><th>批结论</th><th>最终结论</th><th>检出限</th><th>限定符</th>
+    </tr></thead><tbody>
+    {% for item in corrections %}{% set p = item.payload %}<tr>
+      <td title="{{ p.batch }} / {{ p.analyte }} / 行 {{ p.line }}">{{ p.sample_id }}</td>
+      <td class="num">{{ p.batch_blank }}</td>
+      <td class="num">{{ p.adjacent_blank if p.adjacent_blank is not none else '—' }}{% if p.adjacent_blank_id %} <small>{{ p.adjacent_blank_id }}:{{ p.adjacent_blank_line }}</small>{% endif %}</td>
+      <td>{{ {'batch':'批中位数','adjacent':'相邻空白'}.get(p.basis,p.basis) }}</td>
+      <td><span class="tag {{ 'tag-ok' if p.status=='APPLIED' else 'tag-warn' }}" title="{{ p.reason }}">{{ '已切换' if p.status=='APPLIED' else '保留原结论' }}</span></td>
+      <td>{{ p.batch_conclusion }} <small>{{ p.batch_concentration }}</small></td>
+      <td><strong>{{ p.final_conclusion }}</strong> <small>{{ p.final_concentration }}</small></td>
+      <td class="num">{{ p.lod }}</td>
+      <td>{{ p.final_qualifier or '—' }}</td>
+    </tr>{% else %}<tr><td colspan="9">本批无低浓度样品需要切换空白依据。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel blanks">
+    <div class="panel-head"><h2>空白来源</h2><span>{{ run.result.blank_report|length }} 个空白</span></div>
+    <div class="table-wrap"><table class="ledger"><thead><tr><th>空白</th><th>来源行</th><th>空白浓度</th><th>高标样之后</th><th>归类</th><th>计入批中位数</th></tr></thead><tbody>
+    {% for row in run.result.blank_report %}<tr>
+      <td>{{ row.sample_id }}</td><td class="num">{{ row.line }}</td><td class="num">{{ row.blank_value if row.blank_value is not none else '—' }}</td>
+      <td>{{ '是' if row.after_high_standard else '否' }}</td>
+      <td><span class="tag {{ {'CLEAN':'tag-ok','CARRYOVER':'tag-warn','UNKNOWN_HIGH':'tag-bad','INVALID':'tag-bad'}.get(row.blank_class,'tag-warn') }}">{{ {'CLEAN':'洁净','CARRYOVER':'残留带出','UNKNOWN_HIGH':'来源不明偏高','INVALID':'无效','CURVE_MISSING':'缺标曲'}.get(row.blank_class,row.blank_class) }}</span></td>
+      <td>{{ '是' if row.used_for_baseline else '否' }}</td>
+    </tr>{% else %}<tr><td colspan="6">无空白记录。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel input">
+    <div class="panel-head"><h2>输入批次</h2><span>CSV</span></div>
+    <form id="run-form"><label>仪器文件<input id="file" type="file" accept=".csv"></label><textarea id="text" rows="4" aria-label="CSV内容" placeholder="粘贴仪器数据"></textarea><div class="actions"><button class="btn" type="button" id="sample">载入样例</button><button class="btn primary" type="submit">运行复算</button></div><output id="feedback" role="status">{{ run.created }}</output></form>
+  </section>
+
+  <section class="panel quarantine">
+    <div class="panel-head"><h2>隔离原因</h2><span>{{ run.result.quarantine|length }} 条</span></div>
+    <div class="reason-list">{% for reason,count in run.result.reasons.items() %}<div><span class="sev severe">{{ reason }}</span><b>{{ count }}</b></div>{% endfor %}</div>
+    <div class="review"><button class="btn" data-review="退回">退回</button><button class="btn" data-review="通过">通过</button><span>版本 {{ run.revision }}</span></div>
+  </section>
+</div>
+<script type="application/json" id="run-state">{{ {'id':run.id,'revision':run.revision}|tojson }}</script>
+{% endblock %}
